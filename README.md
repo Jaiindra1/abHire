@@ -1,7 +1,7 @@
 import Button from "../../components/ui/button/Button";
 import { Modal } from "../../components/ui/modal";
 import { useModal } from "../../hooks/useModal";
-import { useState, useEffect } from "react"; // Import useEffect
+import { useState, useEffect } from "react";
 import {
   Table,
   TableBody,
@@ -13,7 +13,8 @@ import { SearchIcon } from "../../icons";
 import Label from "../../components/form/Label";
 import { Controller, useForm } from "react-hook-form";
 import Select from "../../components/form/Select";
-import { schema } from "../JobOpenings/JobEditor";
+// Assuming 'schema' is correctly defined for client data validation
+import { schema } from "../JobOpenings/JobEditor"; // <--- Ensure this schema is for Client data
 import { zodResolver } from "@hookform/resolvers/zod";
 
 type SortKey =
@@ -23,15 +24,24 @@ type SortKey =
   | "Time Zone"
   | "Contact Person Name"
   | "Email"
-  | "Postal_Code";
+  | "Postal_Code"
+  | "Notes" // Added Notes, Address1, Address2, City, State, Landmark, Maps_Url to SortKey for completeness if you intend to sort by them
+  | "Address1"
+  | "Address2"
+  | "City"
+  | "State"
+  | "Landmark"
+  | "Maps_Url"
+  | "contact_phone"; // Added contact_phone to SortKey
 type SortOrder = "asc" | "desc";
 
 // Define a type for your client data to ensure type safety
 type ClientData = {
   Client_Name: string;
   Location: string;
-  country: string;
-  Time_Zone: string; // This was missing in your formData initial state
+  country: string; // Store as string for display
+  country_id: number; // Store the ID for API
+  Time_Zone: string;
   Contact_Person_Name: string;
   Email: string;
   contact_phone: string;
@@ -46,18 +56,22 @@ type ClientData = {
 };
 
 // Dummy country options for the Select component. Replace with actual data if needed.
+// IMPORTANT: The `value` should be the ID expected by your backend.
 const countryOptions = [
   { value: 1, label: "USA" },
   { value: 2, label: "Canada" },
   { value: 3, label: "India" },
+  { value: 4, label: "United Kingdom" },
+  // Add more countries as needed
 ];
 
 export default function ClientInformation() {
   const [formData, setFormData] = useState<ClientData>({
     Client_Name: "",
     Location: "",
-    country: "",
-    Time_Zone: "", // Ensure this is initialized
+    country: "", // Initialize as empty string
+    country_id: 0, // Initialize with a default ID, or null if optional
+    Time_Zone: "",
     Contact_Person_Name: "",
     Email: "",
     contact_phone: "",
@@ -70,16 +84,30 @@ export default function ClientInformation() {
     Landmark: "",
     Maps_Url: "",
   });
-  const [clientProfile, setClientProfile] = useState<ClientData[]>([]); // Specify array of ClientData
+  const [clientProfile, setClientProfile] = useState<ClientData[]>([]);
   const { isOpen, openModal, closeModal } = useModal();
   const [sortKey, setSortKey] = useState<SortKey>("Client Name");
   const [sortOrder, setSortOrder] = useState<SortOrder>("asc");
   const [searchTerm, setSearchTerm] = useState("");
 
+  const {
+    control,
+    handleSubmit, // Use handleSubmit for form submission
+    setValue, // To programmatically set form values
+    formState: { errors },
+  } = useForm({
+    resolver: zodResolver(schema),
+    mode: "onChange",
+    defaultValues: { // Set default values to match formData structure for react-hook-form
+      country_id: formData.country_id,
+      // ... include other fields if your schema covers them and you want RHF to manage them
+    }
+  });
+
   // Fetch client data on component mount
   useEffect(() => {
     fetchClients();
-  }, []); // Empty dependency array means this runs once on mount
+  }, []);
 
   const fetchClients = async () => {
     try {
@@ -87,8 +115,27 @@ export default function ClientInformation() {
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-      const data = await response.json();
-      setClientProfile(data);
+      const data: any[] = await response.json(); // Data from API might be different structure
+      // Map API data to your ClientData type if necessary
+      const mappedData: ClientData[] = data.map(apiClient => ({
+        Client_Name: apiClient.client_name || "",
+        Location: apiClient.location || "",
+        country: countryOptions.find(opt => opt.value === apiClient.country_id)?.label || "", // Convert ID back to label
+        country_id: apiClient.country_id || 0, // Store the ID
+        Time_Zone: apiClient.time_zone || "", // Ensure your API returns this
+        Contact_Person_Name: apiClient.primary_contact_name || "",
+        Email: apiClient.contact_email || "",
+        contact_phone: apiClient.phone_number || "",
+        Notes: apiClient.notes || "",
+        Address1: apiClient.address1 || "",
+        Address2: apiClient.address2 || "",
+        City: apiClient.city || "",
+        State: apiClient.state || "",
+        Postal_code: apiClient.postal_code || "",
+        Landmark: apiClient.landmark || "",
+        Maps_Url: apiClient.google_map_url || "",
+      }));
+      setClientProfile(mappedData);
     } catch (error) {
       console.error("Error fetching clients:", error);
       alert("Failed to fetch client data.");
@@ -108,14 +155,10 @@ export default function ClientInformation() {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  const addToList = async () => {
-    if (!formData.Client_Name || !formData.Location || !formData.country) {
-      alert("Please fill all required fields: Client Name, Location, and Country.");
-      return;
-    }
-
-    // Prepare data for the POST request according to the API parameters
-    const postData = {
+  // This function will be called by react-hook-form's handleSubmit
+  const onSubmit = async (dataFromForm: any) => { // 'dataFromForm' contains validated data, including country_id
+    // Combine data from react-hook-form (for country_id) and your local formData
+    const finalPostData = {
       client_name: formData.Client_Name,
       location: formData.Location,
       primary_contact_name: formData.Contact_Person_Name,
@@ -125,12 +168,19 @@ export default function ClientInformation() {
       address2: formData.Address2,
       city: formData.City,
       state: formData.State,
-      country_id: countryOptions.find(opt => opt.label === formData.country)?.value || 0, // Assuming country is a string that matches label
+      country_id: dataFromForm.country_id, // Use the country_id from react-hook-form's validated data
       postal_code: formData.Postal_code,
       landmark: formData.Landmark,
       google_map_url: formData.Maps_Url,
       notes: formData.Notes,
+      // Make sure Time_Zone is included if your API expects it
+      time_zone: formData.Time_Zone,
     };
+
+    if (!finalPostData.client_name || !finalPostData.location || !finalPostData.country_id) {
+        alert("Please fill all required fields: Client Name, Location, and Country.");
+        return;
+    }
 
     try {
       const response = await fetch("https://abhirebackend.onrender.com/clients/clients", {
@@ -139,21 +189,23 @@ export default function ClientInformation() {
           "Content-Type": "application/json",
           "Accept": "application/json",
         },
-        body: JSON.stringify(postData),
+        body: JSON.stringify(finalPostData),
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        // Attempt to read error message from server
+        const errorData = await response.json().catch(() => ({ message: "Unknown error" }));
+        throw new Error(`HTTP error! status: ${response.status}, message: ${errorData.message || response.statusText}`);
       }
 
-      // If the save is successful, re-fetch the clients to update the list
-      await fetchClients();
-      
-      // Reset form data
+      await fetchClients(); // Re-fetch the clients to get the updated list from the backend
+
+      // Reset form data for local state (input fields)
       setFormData({
         Client_Name: "",
         Location: "",
         country: "",
+        country_id: 0,
         Time_Zone: "",
         Contact_Person_Name: "",
         Email: "",
@@ -167,24 +219,20 @@ export default function ClientInformation() {
         Landmark: "",
         Maps_Url: "",
       });
+
+      // Also reset the country_id value for react-hook-form's Controller
+      setValue("country_id", 0); // Or null, depending on your schema
+
       closeModal();
-    } catch (error) {
-      console.error("Error adding client:", error);
-      alert("Failed to add client. Please try again.");
+    } catch (error: any) { // Type 'any' for error for now
+      console.error("Error adding client:", error.message || error);
+      alert(`Failed to add client: ${error.message || "Unknown error"}. Please try again.`);
     }
   };
 
   const filteredClients = clientProfile.filter((client: ClientData) =>
     Object.values(client).join(" ").toLowerCase().includes(searchTerm.toLocaleLowerCase())
   );
-
-  const {
-    control,
-    formState: { errors },
-  } = useForm({
-    resolver: zodResolver(schema),
-    mode: "onChange",
-  });
 
   return (
     <div>
@@ -235,16 +283,16 @@ export default function ClientInformation() {
                     >
                       <div
                         className="flex items-center justify-between cursor-pointer"
+                        // Ensure these keys match your SortKey type
                         onClick={() =>
                           handleSort(
-                            // Corrected mapping for sort keys
                             [
                               "Client Name",
                               "country",
                               "Location",
                               "Contact Person Name",
                               "Email",
-                              "contact phone",
+                              "contact_phone", // Corrected
                               "Notes",
                               "Address1",
                               "Address2",
@@ -270,7 +318,7 @@ export default function ClientInformation() {
                                   "Location",
                                   "Contact Person Name",
                                   "Email",
-                                  "contact phone",
+                                  "contact_phone", // Corrected
                                   "Notes",
                                   "Address1",
                                   "Address2",
@@ -364,7 +412,8 @@ export default function ClientInformation() {
         </div>
       </div>
       <Modal isOpen={isOpen} onClose={closeModal} className="modal-style pl-7 pt-20 pb-10 ">
-        <div className="overflow-hidden ml-4">
+        {/* Wrap your form content in a <form> and use onSubmit with handleSubmit */}
+        <form onSubmit={handleSubmit(onSubmit)} className="overflow-hidden ml-4">
           <div className="flex flex-col flex-3 mr-4">
             <div>
               <h2>Basic Informaion</h2>
@@ -513,7 +562,7 @@ export default function ClientInformation() {
                       Country
                     </Label>
                     <Controller
-                      name="country_id" // This should align with the name in your schema and form data if you use useForm for this field
+                      name="country_id" // This matches the field in your schema
                       control={control}
                       render={({ field }) => (
                         <Select
@@ -522,14 +571,18 @@ export default function ClientInformation() {
                           options={countryOptions}
                           placeholder="Select country"
                           className="dark:bg-dark-900"
-                          error={!!errors.country_id} // Adjust error check if 'country_id' is not directly from schema
+                          error={!!errors.country_id}
                           hint={errors.country_id?.message}
-                          // Manually handle change for the Select component if it doesn't directly update formData
                           onChange={(selectedOption) => {
-                            field.onChange(selectedOption?.value); // Update react-hook-form
-                            setFormData({ ...formData, country: selectedOption?.label || "" }); // Update local state
+                            field.onChange(selectedOption ? selectedOption.value : 0); // Update react-hook-form's value (the ID)
+                            setFormData({
+                              ...formData,
+                              country: selectedOption ? selectedOption.label : "", // Update local state for display (the string label)
+                              country_id: selectedOption ? selectedOption.value : 0, // Update local state for the ID
+                            });
                           }}
-                          value={countryOptions.find(opt => opt.label === formData.country)} // Set selected value based on formData.country
+                          // Ensure the Select component displays the correct selected option
+                          value={countryOptions.find(opt => opt.value === formData.country_id)}
                         />
                       )}
                     />
@@ -551,7 +604,7 @@ export default function ClientInformation() {
                 <div className="flex gap-5 mt-3">
                   <div>
                     <label className="block font-medium mb-1">
-                      LandMark <span style={{ color: "red" }}>*</span>
+                      Landmark <span style={{ color: "red" }}>*</span>
                     </label>
                     <input
                       type="text"
@@ -578,12 +631,12 @@ export default function ClientInformation() {
                 </div>
               </div>
               <div className="relative justify-end flex mt-5 gap-5 mr-5 ">
-                <Button onClick={closeModal}> Close </Button>
-                <Button onClick={addToList}> Save </Button>
+                <Button onClick={closeModal} type="button"> Close </Button> {/* Added type="button" to prevent form submission */}
+                <Button type="submit"> Save </Button> {/* Changed to type="submit" */}
               </div>
             </div>
           </div>
-        </div>
+        </form>
       </Modal>
     </div>
   );
