@@ -1,7 +1,7 @@
 import Button from "../../components/ui/button/Button";
 import { Modal } from "../../components/ui/modal";
 import { useModal } from "../../hooks/useModal";
-import { useState, useEffect, ReactNode } from "react"; // Import ReactNode
+import { useState, useEffect } from "react";
 import {
   Table,
   TableBody,
@@ -10,90 +10,99 @@ import {
   TableRow,
 } from "../../components/ui/table";
 import { SearchIcon } from "../../icons";
-import axios from "axios"; // axios is already imported, good.
+import Select from "../../components/form/Select"; // Assuming this is a custom Select component
+import { Controller, useForm } from "react-hook-form";
+import axios from "axios";
 
 type SortKey =
-  | "client_name" // Changed to match data keys
+  | "client_name"
   | "country"
   | "location"
-  | "primary_contact_name" // Changed to match data keys
-  | "contact_email" // Changed to match data keys
-  | "phone_number" // Changed to match data keys
-  | "notes" // Changed to match data keys
+  | "primary_contact_name"
+  | "contact_email"
+  | "phone_number"
+  | "notes"
   | "address1"
   | "address2"
   | "city"
   | "state"
   | "postal_code"
   | "landmark"
-  | "google_map_url"; // Changed to match data keys
+  | "google_map_url";
 type SortOrder = "asc" | "desc";
 
-// Refined ClientData type to match API response structure and form data
+// Define a type for a single country object from the metadata endpoint
+type Country = {
+  id: number;
+  country_name: string;
+};
+
 type ClientData = {
   client_name: string;
   location: string;
-  country: string; // For display, can be derived from country_id
-  primary_contact_name: string; // Matches API payload
-  contact_email: string; // Matches API payload
+  country: string; // This will hold the country name for display
+  primary_contact_name: string;
+  contact_email: string;
   phone_number: string;
-  notes: string; // Matches API payload
+  notes: string;
   address1: string;
   address2: string;
   city: string;
   state: string;
-  country_id: string; // Keeping as string as in your provided code
+  country_id: number; // This will hold the country ID for backend
   postal_code: string;
   landmark: string;
   google_map_url: string;
-  // Add an index signature if you really expect arbitrary properties,
-  // but it's generally better to define all known properties.
-  // [key: string]: string | ReactNode; // Only if truly needed, otherwise remove
 };
 
 export default function ClientInformation() {
   const [formData, setFormData] = useState<ClientData>({
     client_name: "",
     location: "",
-    country: "", // For display, will be set on fetch or manually for input
+    country: "",
     primary_contact_name: "",
     contact_email: "",
     phone_number: "",
-    notes: "", // Changed to lowercase 'notes' for consistency
+    notes: "",
     address1: "",
     address2: "",
     city: "",
     state: "",
-    country_id: "91", // Default hardcoded country_id
+    country_id: 0, // Initialize with 0 or a sensible default if your backend has one
     postal_code: "",
     landmark: "",
     google_map_url: "",
   });
   const [clientProfile, setClientProfile] = useState<ClientData[]>([]);
+  // Corrected type for countrycodes
+  const [countries, setCountries] = useState<Country[]>([]);
   const { isOpen, openModal, closeModal } = useModal();
-  const [sortKey, setSortKey] = useState<SortKey>("client_name"); // Initial sort key updated
+  const [sortKey, setSortKey] = useState<SortKey>("client_name");
   const [sortOrder, setSortOrder] = useState<SortOrder>("asc");
   const [searchTerm, setSearchTerm] = useState("");
-  const authToken = localStorage.getItem("authToken"); // Get auth token
+  const authToken = localStorage.getItem("authToken");
+
+  // useForm from react-hook-form is imported but not used in the provided code.
+  // If you intend to use it, you would typically initialize it here:
+  // const { control, handleSubmit, formState: { errors } } = useForm<ClientData>();
 
   useEffect(() => {
     fetchClients();
+    fetchCountries(); // Renamed for clarity
   }, []);
 
   const fetchClients = async () => {
     try {
-      // Using axios for consistency
       const response = await axios.get("https://abhirebackend.onrender.com/clients/clients", {
         headers: {
-          // Include Authorization header for GET requests if required by your API
-          // For a 403 on POST, it's highly likely GET also needs authentication.
           Authorization: `Bearer ${authToken}`,
           "Content-Type": "application/json",
         },
       });
-
-      // Axios returns data directly on response.data
       const data: ClientData[] = response.data;
+      // If the backend sends country_id but not country name, you'll need to map it here.
+      // This mapping logic should ideally happen after both clients and countries are fetched.
+      // For now, assume 'country' field in ClientData is populated by the backend.
       setClientProfile(data);
     } catch (error) {
       console.error("Error fetching clients:", error);
@@ -102,6 +111,29 @@ export default function ClientInformation() {
         alert(`Failed to fetch client data: ${error.response.statusText || 'Unknown error'}. Please check your authentication.`);
       } else {
         alert("Failed to fetch client data. Please try again.");
+      }
+    }
+  };
+
+  // Renamed and typed correctly
+  const fetchCountries = async () => {
+    try {
+      const response = await axios.get<Country[]>("https://abhirebackend.onrender.com/metadata/countries", {
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+          "Content-Type": "application/json",
+        },
+      });
+      const data: Country[] = response.data;
+      console.log("Fetched Countries:", data);
+      setCountries(data); // Set to the new countries state
+    } catch (error) {
+      console.error("Error fetching countries:", error);
+      if (axios.isAxiosError(error) && error.response) {
+        console.error("Fetch Error Response:", error.response.data);
+        alert(`Failed to fetch country data: ${error.response.statusText || 'Unknown error'}.`);
+      } else {
+        alert("Failed to fetch country data. Please try again.");
       }
     }
   };
@@ -115,12 +147,24 @@ export default function ClientInformation() {
     }
   };
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
+  // Special handler for country select to update both country and country_id
+  const handleCountryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const countryId = parseInt(e.target.value);
+    const selectedCountry = countries.find(c => c.id === countryId);
+    setFormData((prev) => ({
+      ...prev,
+      country_id: countryId,
+      country: selectedCountry ? selectedCountry.country_name : "", // Store the name for display
+    }));
+  };
+
+
   const addToList = async () => {
-    // Client-side validation for required fields
     if (!formData.client_name || !formData.location || !formData.country_id) {
       alert("Please fill all required fields: Client Name, Location, and Country.");
       return;
@@ -134,8 +178,6 @@ export default function ClientInformation() {
       return;
     }
 
-    // Prepare data for the POST request
-    // Keys here MUST match your API's expected payload
     const postData = {
       client_name: formData.client_name,
       location: formData.location,
@@ -146,37 +188,32 @@ export default function ClientInformation() {
       address2: formData.address2,
       city: formData.city,
       state: formData.state,
-      country_id: formData.country_id, // Ensure this is the correct ID your API expects
+      country_id: formData.country_id, // Use the ID from state
       postal_code: formData.postal_code,
       landmark: formData.landmark,
       google_map_url: formData.google_map_url,
-      notes: formData.notes, // Changed to lowercase 'notes'
+      notes: formData.notes,
     };
 
     try {
-      // Correct Axios POST request syntax
       const response = await axios.post(
         "https://abhirebackend.onrender.com/clients/clients",
-        postData, // Axios sends data as the second argument for POST, automatically JSON.stringifies
+        postData,
         {
           headers: {
+            Authorization: `Bearer ${authToken}`,
             "Content-Type": "application/json",
             "Accept": "application/json",
-            "Authorization": `Bearer ${authToken}`, // <--- Send the Authorization header
           },
         }
       );
-
-      // Axios throws an error for non-2xx responses, so no need for `if (!response)`
       console.log("Client added successfully:", response.data);
 
-      await fetchClients(); // Re-fetch the clients to update the list
-
-      // Reset form data to initial empty state
+      await fetchClients(); // Refresh the client list
       setFormData({
         client_name: "",
         location: "",
-        country: "",
+        country: "", // Reset country name
         primary_contact_name: "",
         contact_email: "",
         phone_number: "",
@@ -185,27 +222,39 @@ export default function ClientInformation() {
         address2: "",
         city: "",
         state: "",
-        country_id: "91", // Reset to default hardcoded ID
+        country_id: 0, // Reset to a default valid ID or 0
         postal_code: "",
         landmark: "",
         google_map_url: "",
       });
       closeModal();
     } catch (error) {
-      console.log("POST Data being sent:", postData); // Log the data being sent
+      console.log("POST Data being sent:", postData);
       console.error("Error adding client:", error);
       if (axios.isAxiosError(error) && error.response) {
         console.error("Error Response Data:", error.response.data);
-        alert(`Failed to add client: ${error.response.statusText || 'Unknown error'}. Status: ${error.response.status}. Message: ${JSON.stringify(error.response.data)}`);
+        alert(`Failed to add client: ${error.response.data.message || error.response.statusText}`);
       } else {
-        alert("Failed to add client. Please try again. Check console for details.");
+        alert("Failed to add client. Please try again.");
       }
     }
   };
 
-  const filteredClients = clientProfile.filter((client: ClientData) =>
-    Object.values(client).join(" ").toLowerCase().includes(searchTerm.toLocaleLowerCase())
-  );
+  const filteredClients = clientProfile
+    .filter((client: ClientData) =>
+      Object.values(client).join(" ").toLowerCase().includes(searchTerm.toLocaleLowerCase())
+    )
+    .sort((a, b) => {
+      const aValue = a[sortKey];
+      const bValue = b[sortKey];
+
+      if (typeof aValue === 'string' && typeof bValue === 'string') {
+        return sortOrder === 'asc' ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
+      }
+      // Handle numeric or other types if necessary, or simply return 0 for non-comparable types
+      return 0;
+    });
+
 
   return (
     <div>
@@ -235,19 +284,19 @@ export default function ClientInformation() {
                 <TableRow>
                   {[
                     "Client Name",
-                    "Country", // Display label
+                    "Country",
                     "Location",
                     "Contact Person Name",
                     "Email",
-                    "Contact Phone", // Display label
+                    "Contact Phone",
                     "Notes",
                     "Address1",
                     "Address2",
                     "City",
                     "State",
-                    "Postal Code", // Display label
+                    "Postal Code",
                     "Landmark",
-                    "Maps URL", // Display label
+                    "Maps URL",
                   ].map((label, index) => (
                     <TableCell
                       key={index}
@@ -256,12 +305,11 @@ export default function ClientInformation() {
                     >
                       <div
                         className="flex items-center justify-between cursor-pointer"
-                        // Map display labels to actual sort keys from ClientData
                         onClick={() =>
                           handleSort(
                             [
                               "client_name",
-                              "country", // Assuming you'd sort by the country string here, or client_id if that were available
+                              "country", // Sort by 'country' field (name)
                               "location",
                               "primary_contact_name",
                               "contact_email",
@@ -285,46 +333,40 @@ export default function ClientInformation() {
                           <svg
                             className={`text-gray-300 dark:text-gray-700 ${
                               sortKey ===
-                                [
-                                  "client_name",
-                                  "country",
-                                  "location",
-                                  "primary_contact_name",
-                                  "contact_email",
-                                  "phone_number",
-                                  "notes",
-                                  "address1",
-                                  "address2",
-                                  "city",
-                                  "state",
-                                  "postal_code",
-                                  "landmark",
-                                  "google_map_url",
-                                ][index] && sortOrder === "asc"
+                              [
+                                "client_name",
+                                "country",
+                                "location",
+                                "primary_contact_name",
+                                "contact_email",
+                                "phone_number",
+                                "notes",
+                                "address1",
+                                "address2",
+                                "city",
+                                "state",
+                                "postal_code",
+                                "landmark",
+                                "google_map_url",
+                              ][index] && sortOrder === "asc"
                                 ? "text-brand-500"
                                 : ""
                             }`}
                             width="8"
                             height="5"
                             viewBox="0 0 8 5"
-                            fill="none"
+                            fill="currentColor" // Use fill="currentColor" to apply the text-brand-500 color
                           >
-                            <path
-                              d="M4.40962 0.585167C4.21057 0.300808 3.78943 0.300807 3.59038 0.585166L1.05071 4.21327C0.81874 4.54466 1.05582 5 1.46033 5H6.53967C6.94418 5 7.18126 4.54466 6.94929 4.21327L4.40962 0.585167Z"
-                              fill="currentColor"
-                            />
+                            <path d="M4.40962 0.585167C4.21057 0.300808 3.78943 0.300807 3.59038 0.585166L1.05071 4.21327C0.81874 4.54466 1.05582 5 1.46033 5H6.53967C6.94418 5 7.18126 4.54466 6.94929 4.21327L4.40962 0.585167Z" />
                           </svg>
                           <svg
                             className="text-gray-300 dark:text-gray-700"
                             width="8"
                             height="5"
                             viewBox="0 0 8 5"
-                            fill="none"
+                            fill="currentColor" // Use fill="currentColor"
                           >
-                            <path
-                              d="M4.40962 4.41483C4.21057 4.69919 3.78943 4.69919 3.59038 4.41483L1.05071 0.786732C0.81874 0.455343 1.05582 0 1.46033 0H6.53967C6.94418 0 7.18126 0.455342 6.94929 0.786731L4.40962 4.41483Z"
-                              fill="currentColor"
-                            />
+                            <path d="M4.40962 4.41483C4.21057 4.69919 3.78943 4.69919 3.59038 4.41483L1.05071 0.786732C0.81874 0.455343 1.05582 0 1.46033 0H6.53967C6.94418 0 7.18126 0.455342 6.94929 0.786731L4.40962 4.41483Z" />
                           </svg>
                         </button>
                       </div>
@@ -339,22 +381,23 @@ export default function ClientInformation() {
                       {data.client_name}
                     </TableCell>
                     <TableCell className="px-4 py-4 font-medium text-gray-800 border border-gray-300 dark:border-white/[0.05] text-theme-sm dark:text-gray-400 whitespace-nowrap">
-                      {data.country} {/* Display `country` from fetched data */}
+                      {/* Display country name by looking up country_id in your fetched countries list */}
+                      {countries.find(country => country.id === data.country_id)?.country_name || data.country}
                     </TableCell>
                     <TableCell className="px-4 py-4 font-medium text-gray-800 border border-gray-300 dark:border-white/[0.05] text-theme-sm dark:text-gray-400 whitespace-nowrap">
                       {data.location}
                     </TableCell>
                     <TableCell className="px-4 py-4 font-medium text-gray-800 border border-gray-300 dark:border-white/[0.05] text-theme-sm dark:text-gray-400 whitespace-nowrap">
-                      {data.primary_contact_name} {/* Use correct key */}
+                      {data.primary_contact_name}
                     </TableCell>
                     <TableCell className="px-4 py-4 font-medium text-gray-800 border border-gray-300 dark:border-white/[0.05] text-theme-sm dark:text-gray-400 whitespace-nowrap">
-                      {data.contact_email} {/* Use correct key */}
+                      {data.contact_email}
                     </TableCell>
                     <TableCell className="px-4 py-4 font-medium text-gray-800 border border-gray-300 dark:border-white/[0.05] text-theme-sm dark:text-gray-400 whitespace-nowrap">
                       {data.phone_number}
                     </TableCell>
                     <TableCell className="px-4 py-4 font-medium text-gray-800 border border-gray-300 dark:border-white/[0.05] text-theme-sm dark:text-gray-400 whitespace-nowrap">
-                      {data.notes} {/* Use correct key */}
+                      {data.notes}
                     </TableCell>
                     <TableCell className="px-4 py-4 font-medium text-gray-800 border border-gray-300 dark:border-white/[0.05] text-theme-sm dark:text-gray-400 whitespace-nowrap">
                       {data.address1}
@@ -375,7 +418,7 @@ export default function ClientInformation() {
                       {data.landmark}
                     </TableCell>
                     <TableCell className="px-4 py-4 font-medium text-gray-800 border border-gray-300 dark:border-white/[0.05] text-theme-sm dark:text-gray-400 whitespace-nowrap">
-                      {data.google_map_url} {/* Use correct key */}
+                      {data.google_map_url}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -388,7 +431,7 @@ export default function ClientInformation() {
         <div className="overflow-hidden ml-4">
           <div className="flex flex-col flex-3 mr-4">
             <div>
-              <h2>Basic Information</h2> {/* Corrected spelling */}
+              <h2>Basic Information</h2>
               <div className="relative flex gap-5 mt-4">
                 <div>
                   <label className="block font-medium mb-1">
@@ -398,7 +441,7 @@ export default function ClientInformation() {
                     type="text"
                     placeholder="Field Name"
                     value={formData.client_name}
-                    name="client_name" // Use consistent lowercase
+                    name="client_name"
                     onChange={handleChange}
                     className="dark:bg-dark-900 h-11 w-full rounded-lg border border-gray-300 bg-transparent py-2.5 pl-4 pr-4 text-sm text-gray-800 shadow-theme-xs placeholder:text-gray-400 focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-white/30 dark:focus:border-brand-800 xl:w-[300px]"
                   />
@@ -411,7 +454,7 @@ export default function ClientInformation() {
                     type="text"
                     placeholder="Location"
                     value={formData.location}
-                    name="location" // Use consistent lowercase
+                    name="location"
                     onChange={handleChange}
                     className="dark:bg-dark-900 h-11 w-full rounded-lg border border-gray-300 bg-transparent py-2.5 pl-4 pr-4 text-sm text-gray-800 shadow-theme-xs placeholder:text-gray-400 focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-white/30 dark:focus:border-brand-800 xl:w-[300px]"
                   />
@@ -426,7 +469,7 @@ export default function ClientInformation() {
                     type="text"
                     placeholder="Contact Person Name"
                     value={formData.primary_contact_name}
-                    name="primary_contact_name" // Use consistent lowercase
+                    name="primary_contact_name"
                     onChange={handleChange}
                     className="dark:bg-dark-900 h-11 w-full rounded-lg border border-gray-300 bg-transparent py-2.5 pl-4 pr-4 text-sm text-gray-800 shadow-theme-xs placeholder:text-gray-400 focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-white/30 dark:focus:border-brand-800 xl:w-[300px]"
                     required
@@ -439,7 +482,7 @@ export default function ClientInformation() {
                   <input
                     type="text"
                     placeholder="Email"
-                    name="contact_email" // Use consistent lowercase
+                    name="contact_email"
                     value={formData.contact_email}
                     onChange={handleChange}
                     className="dark:bg-dark-900 h-11 w-full rounded-lg border border-gray-300 bg-transparent py-2.5 pl-4 pr-4 text-sm text-gray-800 shadow-theme-xs placeholder:text-gray-400 focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-white/30 dark:focus:border-brand-800 xl:w-[300px]"
@@ -452,7 +495,7 @@ export default function ClientInformation() {
                   <input
                     type="Number"
                     placeholder="Phone"
-                    name="phone_number" // Use consistent lowercase
+                    name="phone_number"
                     value={formData.phone_number}
                     onChange={handleChange}
                     className="dark:bg-dark-900 h-11 w-full rounded-lg border border-gray-300 bg-transparent py-2.5 pl-4 pr-4 text-sm text-gray-800 shadow-theme-xs placeholder:text-gray-400 focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-white/30 dark:focus:border-brand-800 xl:w-[300px]"
@@ -463,7 +506,7 @@ export default function ClientInformation() {
                   <input
                     type="text"
                     placeholder="Notes"
-                    name="notes" // Use consistent lowercase
+                    name="notes"
                     value={formData.notes}
                     onChange={handleChange}
                     className="dark:bg-dark-900 h-11 w-full rounded-lg border border-gray-300 bg-transparent py-2.5 pl-4 pr-4 text-sm text-gray-800 shadow-theme-xs placeholder:text-gray-400 focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-white/30 dark:focus:border-brand-800 xl:w-[300px]"
@@ -480,7 +523,7 @@ export default function ClientInformation() {
                     <input
                       type="text"
                       placeholder="Address1"
-                      name="address1" // Use consistent lowercase
+                      name="address1"
                       value={formData.address1}
                       onChange={handleChange}
                       className="dark:bg-dark-900 h-11 w-full rounded-lg border border-gray-300 bg-transparent py-2.5 pl-4 pr-4 text-sm text-gray-800 shadow-theme-xs placeholder:text-gray-400 focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-white/30 dark:focus:border-brand-800 xl:w-[300px]"
@@ -494,7 +537,7 @@ export default function ClientInformation() {
                       type="text"
                       placeholder="Address2"
                       value={formData.address2}
-                      name="address2" // Use consistent lowercase
+                      name="address2"
                       onChange={handleChange}
                       className="dark:bg-dark-900 h-11 w-full rounded-lg border border-gray-300 bg-transparent py-2.5 pl-4 pr-4 text-sm text-gray-800 shadow-theme-xs placeholder:text-gray-400 focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-white/30 dark:focus:border-brand-800 xl:w-[300px]"
                     />
@@ -508,7 +551,7 @@ export default function ClientInformation() {
                     <input
                       type="text"
                       placeholder="City"
-                      name="city" // Use consistent lowercase
+                      name="city"
                       value={formData.city}
                       onChange={handleChange}
                       className="dark:bg-dark-900 h-11 w-full rounded-lg border border-gray-300 bg-transparent py-2.5 pl-4 pr-4 text-sm text-gray-800 shadow-theme-xs placeholder:text-gray-400 focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-white/30 dark:focus:border-brand-800 xl:w-[300px]"
@@ -522,7 +565,7 @@ export default function ClientInformation() {
                       type="text"
                       placeholder="State"
                       value={formData.state}
-                      name="state" // Use consistent lowercase
+                      name="state"
                       onChange={handleChange}
                       className="dark:bg-dark-900 h-11 w-full rounded-lg border border-gray-300 bg-transparent py-2.5 pl-4 pr-4 text-sm text-gray-800 shadow-theme-xs placeholder:text-gray-400 focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-white/30 dark:focus:border-brand-800 xl:w-[300px]"
                     />
@@ -533,18 +576,20 @@ export default function ClientInformation() {
                     <label className="block font-medium mb-1">
                       Country <span style={{ color: "red" }}>*</span>
                     </label>
-                    <input
-                      type="text"
-                      placeholder="Country"
-                      value={formData.country} // Still using formData.country for display
-                      name="country"
-                      onChange={handleChange}
+                    {/* Use a select element for country selection */}
+                    <select
+                      name="country_id" // Bind to country_id as that's what backend expects
+                      value={formData.country_id}
+                      onChange={handleCountryChange} // Use the specific handler
                       className="dark:bg-dark-900 h-11 w-full rounded-lg border border-gray-300 bg-transparent py-2.5 pl-4 pr-4 text-sm text-gray-800 shadow-theme-xs placeholder:text-gray-400 focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-white/30 dark:focus:border-brand-800 xl:w-[300px]"
-                    />
-                    {/* Assuming country_id is handled internally or from another source,
-                        or you might need a hidden input for it if not directly from a dropdown
-                        <input type="hidden" name="country_id" value={formData.country_id} />
-                    */}
+                    >
+                      <option value="">Select Country</option>
+                      {countries.map((country) => (
+                        <option key={country.id} value={country.id}>
+                          {country.country_name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   <div>
                     <label className="block font-medium mb-1">
@@ -554,7 +599,7 @@ export default function ClientInformation() {
                       type="text"
                       placeholder="Postal Code"
                       value={formData.postal_code}
-                      name="postal_code" // Use consistent lowercase
+                      name="postal_code"
                       onChange={handleChange}
                       className="dark:bg-dark-900 h-11 w-full rounded-lg border border-gray-300 bg-transparent py-2.5 pl-4 pr-4 text-sm text-gray-800 shadow-theme-xs placeholder:text-gray-400 focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-white/30 dark:focus:border-brand-800 xl:w-[300px]"
                     />
@@ -568,7 +613,7 @@ export default function ClientInformation() {
                     <input
                       type="text"
                       placeholder="Landmark"
-                      name="landmark" // Use consistent lowercase
+                      name="landmark"
                       value={formData.landmark}
                       onChange={handleChange}
                       className="dark:bg-dark-900 h-11 w-full rounded-lg border border-gray-300 bg-transparent py-2.5 pl-4 pr-4 text-sm text-gray-800 shadow-theme-xs placeholder:text-gray-400 focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-white/30 dark:focus:border-brand-800 xl:w-[300px]"
@@ -582,7 +627,7 @@ export default function ClientInformation() {
                       type="text"
                       placeholder="Google Map Url"
                       value={formData.google_map_url}
-                      name="google_map_url" // Use consistent lowercase
+                      name="google_map_url"
                       onChange={handleChange}
                       className="dark:bg-dark-900 h-11 w-full rounded-lg border border-gray-300 bg-transparent py-2.5 pl-4 pr-4 text-sm text-gray-800 shadow-theme-xs placeholder:text-gray-400 focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-white/30 dark:focus:border-brand-800 xl:w-[300px]"
                     />
@@ -591,12 +636,10 @@ export default function ClientInformation() {
               </div>
               <div className="relative justify-end flex mt-5 gap-5 mr-5 ">
                 <Button onClick={closeModal} type="button">
-                  {" "}
-                  Close{" "}
+                  Close
                 </Button>
                 <Button onClick={addToList} type="submit">
-                  {" "}
-                  Save{" "}
+                  Save
                 </Button>
               </div>
             </div>
